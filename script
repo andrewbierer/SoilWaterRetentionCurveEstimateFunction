@@ -1,0 +1,441 @@
+# 
+# MIT License
+# 
+# Copyright (c) 2024 Andrew Bierer
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#   
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#_______________________________________________________________________________
+# This script is intended to assist with irrigation scheduling and management.
+# The script is reliant upon accurate soil textural analysis, convergence of the Rosetta 3 model,
+# and accurate representation of the management system.
+
+# Functionally, the script uses Van Genuchten parameters as estimated by the Rosetta 3 model
+# <https://dsiweb.cse.msu.edu/rosetta/> to derive a soil water retention curve for a selected profile depth to be used for irrigation management.
+# The script considers the entire profile depth as 1 homogeneous mixture and applies the specified hydraulic parameters to the entire profile depth.
+# It is not recommended to manage irrigation across soil profile depths presenting substantive differences in hydraulic movement.
+
+# The script is a single function taking the following arguments:
+# 1) 
+#   Managed Soil Profile Depth            - Select the total depth that is managed for irrigation needs. This should NOT be deeper than considerable textural changes, and boundary layers affecting hydraulic movement.
+# 2) 
+#   Van Genuchten Parameters in a vector
+#     Sand Fraction                         - Empirical soil texture analysis, particle size 0.05 mm to 2 mm, expressed as a percentage out of 100 (10 = 10%) 
+#     Silt Fraction                         - Empirical soil texture analysis, particle size 0.002 mm to 0.05 mm, expressed as a percentage out of 100 (20 = 20%) 
+#     Clay Fraction                         - Empirical soil texture analysis, particle size < 0.002 mm, expressed as a percentage out of 100 (30 = 30%) 
+#     Saturated Hydraulic Conductivity      - Enter estimate from the free Rosetta 3 model, <https://dsiweb.cse.msu.edu/rosetta/>, expressed as cm/day
+#     Residual Soil Water Content           - Enter estimate from the free Rosetta 3 model, <https://dsiweb.cse.msu.edu/rosetta/>, expressed as water cm3 / profile cm3
+#     Saturated Soil Water Content          - Enter estimate from the free Rosetta 3 model, <https://dsiweb.cse.msu.edu/rosetta/>, expressed as water cm3 / profile cm3
+#     ~Inverse soil-air entry point (alpha) - Enter estimate from the free Rosetta 3 model, <https://dsiweb.cse.msu.edu/rosetta/>
+#     Pore size distribution (n)            - Enter estimate from the free Rosetta 3 model, <https://dsiweb.cse.msu.edu/rosetta/>, dimensionless measure
+
+# The script returns:
+# 1)
+#   A graphical representation (plot) of the Van Genuchten modeled Soil Water Retention Curve for the entered soil.
+#   In this graph, volumetric water content (relative to the 'Depth' argument of the function) is expressed on the Y-axis and corresponding soil matric potential on the X-axis.
+#
+#   Estimates for saturation, field capacity, and permanent wilting point are given as determined by:
+#     A) The Rosetta 3 model <https://dsiweb.cse.msu.edu/rosetta/>
+#     B) Experimentation by L.F. Ratliff et. al (1983) "Field-measured limits of soil water availability as related to laboratory-measured properties". Soil Science Society of America Journal. doi: 10.2136/sssaj1983.03615995004700040032x | <https://doi.org/10.2136/sssaj1983.03615995004700040032x>
+#        Parameter estimate Error for both estimates are derived from experimentation by Ratliff et. al. (1983)
+# 2)
+#   A data frame (6 columns by 101 rows) aligning expressions of soil water status across rows.
+#     "index":
+#     "Managed Profile Water Volume":
+#     "Managed Profile Plant Available Water":
+#     "Managed Profile Volumetric Water Content":
+#     "Estimated Corresponding Soil Matric Potential":
+#     "Estimated Irrigation Depth for Refill of Managed Profile Volume":
+#
+# 3)
+#   A printed tibble with Rosetta 3 and Ratliff estimates for:
+#     A) USDA Soil Texture Class
+#     B) Volumetric Water Content @ Saturation
+#     C) Volumetric Water Content @ Field Capacity
+#     D) Volumetric Water Content @ Permanent Wilting Point
+#     E) Soil Matric Potential @ Saturation
+#     F) Soil Matric Potential @ Field Capacity
+#     G) Soil Matric Potential @ Permanent Wilting Point
+
+
+#Required Library
+#install.packages("tidyverse") # un comment this line to install tidyverse
+library(tidyverse)
+
+getEstimate <- function(Depth, VG=c(sand, silt, clay, `ks cm per day`, thetaR, thetaS, alpha, n)){
+  
+  vg <- function(suction,thetar, thetas, a,n)
+    
+  {
+    
+    (((thetas-thetar)/((((a*suction)^n)+1)^(1-(1/n))))+thetar)
+    
+  }
+  
+  
+  
+  #Static Outcome  
+  SMP <- seq(0, 10000, by = 1)
+  
+  
+  #Dynamic Outcome
+  VWC <- seq(10000,0, by = -1)
+  PAW <- seq(10000,0, by = -1)
+  vgOut <- vg(SMP, VG[5], VG[6], VG[7], VG[8])
+  #Example Data (Zirkle)
+  #vgOut <-  vg(SMP, 0.062, 0.406, 0.005, 1.539)
+  
+  swrc <- data.frame(SMP, vgOut)
+  plot(swrc)
+  
+  #Field Capacity Texture Table from L.F. Ratliff et. al., 1983 Field-measured limits of soil water availability as related to laboratory-measured properties. Soil Science Society of America Journal
+  textureData <- c("sand", "loamy sand", "sandy loam", "loam", "silt loam", "silt", "silty clay loam", "clay loam", "sandy clay loam", "sandy clay", "silty clay", "clay")
+  
+  lowertexturelimitSand <- c(87.4, 73.7, 53.1, 29.0, 0.9, 2.2, 0.9, 20.0, 47.4, NA, 1.2, 5.8)
+  uppertexturelimitSand <- c(97.5, 88.3, 83.3, 49.4, 25.4, 2.2, 18.8, 44.6, 72.7, NA, 15.1, 20.0)   
+  
+  lowertexturelimitSilt <- c(0.8, 3.4, 2.8, 29.7, 53.6, 86.4, 44.0, 25.3, 6.6, NA, 40.7, 38.9)   
+  uppertexturelimitSilt <- c(8.5, 23.5, 30.7, 47.1, 84.8, 86.4, 71.8, 46.2, 26.5, NA, 55.2, 39.8)
+  
+  lowertexturelimitClay <- c(1.2, 2.8, 4.4, 8.9, 13.1, 11.4, 27.0, 27.2, 20.7, NA, 40.2, 41.1)
+  uppertexturelimitClay <- c(7.7, 12.6, 19.3, 26.9, 27.0, 11.4, 39.9, 38.3, 30.7, NA, 52.1, 54.4)
+  
+  
+  #Expressed as volume percentages
+  #Can fill in the missing STDEV with globally observed STDEV - 3/19/2024
+  fieldcapacitydrainedupperlimit <- c(11.8, 18.9, 23.7, 25.0, 29.0, 32.3, 33.8, 30.9, 29.0, NA, 35.0, 34.8)
+  fieldcapacitydrainedupperlimitSTDEV <- c(4.9, 6.0, 5.4, 5.1, 7.0, NA, 3.5, 4.5, 3.6, NA, 6.2, 2.9)
+  #4.9 is the global STDEV here
+  
+  fieldcapacitydrainedlowerlimit <- c(8.9, 16.0, 21.4, 25.2, 31.6, 36.1, 34.9, 33.0, 26.3, NA, 37.3, 39.3)
+  fieldcapacitydrainedlowerlimitSTDEV <- c(2.2, 5.3, 5.5, 3.9, 4.1, NA, 2.8, 4.4, 3.3, NA, 3.3, 1.0)
+  #3.6 is the global STDEV here
+  
+  wiltingpointupperlimit <- c(3.8, 5.9, 10.5, 11.4, 14.7, 17.5, 20.8, 18.4, 18.0, NA, 21.5, 21.9)
+  wiltingpointupperlimitSTDEV <- c(2.2, 4.0, 5.2, 4.5, 5.9, NA, 3.4, 4.9, 5.2, NA, 6.8, 1.0)
+  #4.3 is the global STDEV here
+  
+  wiltingpointlowerlimit <- c(3.3, 4.4, 9.9, 13.8, 13.0, 6.9, 20.8, 19.2, 15.0, NA, 24.1, 27.0)
+  wiltingpointlowerlimitSTDEV <- c(1.3, 2.3, 2.0, 4.0, 2.3, NA, 2.6, 3.8, 2.7, NA, 5.4, 1.0)
+  #2.7 is the global STDEV here
+  
+  functionDataFrame <- data.frame(fieldcapacitydrainedupperlimit, fieldcapacitydrainedupperlimitSTDEV, fieldcapacitydrainedlowerlimit, fieldcapacitydrainedlowerlimitSTDEV,
+                                  wiltingpointupperlimit, wiltingpointupperlimitSTDEV, wiltingpointlowerlimit, wiltingpointlowerlimitSTDEV)  
+  
+  
+  functionDataFrame$potentialextractablewater <- functionDataFrame$fieldcapacitydrainedupperlimit-functionDataFrame$wiltingpointupperlimit 
+  #From report, assumed determined through replicates... 
+  functionDataFrame$potentialextractablewaterSTDEV <-c(3.1, 3.6, 2.2, 3.0, 3.3, NA, 2.1, 3.2, 3.5, NA, 3.0, 3.6)
+  
+  functionDataFrame$pressureplatePAW <- functionDataFrame$fieldcapacitydrainedlowerlimit - functionDataFrame$wiltingpointlowerlimit
+  #From report, assumed determined through replicates..
+  functionDataFrame$pressureplatePAWSTDEV <- c(1.9, 3.3, 3.9, 3.3, 3.1, NA, 3.6, 4.2, 2.4, NA, 3.4, 1.3)
+  
+  #summaryTable <- c("Variable", "Value")
+  variableOut <- c("Texture", "Saturation Volumetric Water Content [%]", "Field Capacity Volumetric Water Content [%]", "Wilting Point Volumetric Water Content [%]", "Saturation Matric Potential [-kPa]", "Field Capacity Matric Potential [-kPa]", "Wilting Point Matric Potential [-kPa]")
+  textureOut <- case_when(
+    VG[3] >= 60 ~ "Clay",
+    VG[3] >= 40 && VG[1] <= 45 ~ "Clay",
+    VG[3] >= 40 && VG[1] <= 20 ~ "Silty Clay",
+    VG[3] <= 40 && VG[3] >= 28 && VG[1] < 20 ~ "Silty Clay Loam",
+    VG[3] <= 40 && VG[3] >= 28 && VG[1] >= 20 && VG[1] <= 45 ~ "Clay Loam",
+    VG[3] <= 28 && VG[1] <= 50 && VG[2] >= 50 && VG[2] <= 86 ~ "Silt Loam",
+    VG[3] <= 14 && VG[2] >= 80 ~ "Silt",
+    VG[3] >= 8 && VG[3] <= 28 && VG[2] <= 50 && VG[1] >= 24 && VG[1] <= 52 ~ "Loam",
+    VG[3] >= 35 && VG[1] >= 45 && VG[1] <= 65 ~ "Sandy Clay",
+    VG[3] <= 35 && VG[3] >= 20 && VG[1] >= 45 && VG[1] <= 80 ~ "Sandy Clay Loam",
+    VG[3] <= 20 && VG[3] >= 15 && VG[1] >= 45 && VG[1] <= 85 ~ "Sandy Loam",
+    VG[3] <= 15 && VG[3] >= 10 && VG[1] >= 70 && VG[1] <= 85 ~ "Loamy Sand",
+    VG[3] <= 10 && VG[1] >= 85 ~ "Sand",
+    .default = "Error"
+  )
+  
+  
+  #Associate Ratliff measured errors in field capacity and wilting point by texture
+  #For Derived values
+  ratliffFCSTDEV <- case_when(
+    textureOut == "Sand" ~ fieldcapacitydrainedupperlimitSTDEV[1],
+    textureOut == "Loamy Sand" ~ fieldcapacitydrainedupperlimitSTDEV[2],
+    textureOut == "Sandy Loam" ~fieldcapacitydrainedupperlimitSTDEV[3],
+    textureOut == "Loam" ~fieldcapacitydrainedupperlimitSTDEV[4],
+    textureOut == "Silt Loam" ~fieldcapacitydrainedupperlimitSTDEV[5],
+    textureOut == "Silt" ~fieldcapacitydrainedupperlimitSTDEV[6],
+    textureOut == "Silty Clay Loam" ~fieldcapacitydrainedupperlimitSTDEV[7],
+    textureOut == "Clay Loam" ~fieldcapacitydrainedupperlimitSTDEV[8],
+    textureOut == "Sandy Clay Loam" ~fieldcapacitydrainedupperlimitSTDEV[9],
+    textureOut == "Sandy Clay" ~fieldcapacitydrainedupperlimitSTDEV[10],
+    textureOut == "Silty Clay" ~fieldcapacitydrainedupperlimitSTDEV[11],
+    textureOut == "Clay" ~fieldcapacitydrainedupperlimitSTDEV[12],
+    .default = 999
+  )
+  
+  ratliffWPSTDEV <- case_when(
+    textureOut == "Sand" ~ wiltingpointupperlimitSTDEV[1],
+    textureOut == "Loamy Sand" ~ wiltingpointupperlimitSTDEV[2],
+    textureOut == "Sandy Loam" ~wiltingpointupperlimitSTDEV[3],
+    textureOut == "Loam" ~wiltingpointupperlimitSTDEV[4],
+    textureOut == "Silt Loam" ~wiltingpointupperlimitSTDEV[5],
+    textureOut == "Silt" ~wiltingpointupperlimitSTDEV[6],
+    textureOut == "Silty Clay Loam" ~wiltingpointupperlimitSTDEV[7],
+    textureOut == "Clay Loam" ~wiltingpointupperlimitSTDEV[8],
+    textureOut == "Sandy Clay Loam" ~wiltingpointupperlimitSTDEV[9],
+    textureOut == "Sandy Clay" ~wiltingpointupperlimitSTDEV[10],
+    textureOut == "Silty Clay" ~wiltingpointupperlimitSTDEV[11],
+    textureOut == "Clay" ~wiltingpointupperlimitSTDEV[12],
+    .default = 999
+  )
+  
+  
+  #Associate Ratliff measured errors in PRESSURE PLATE EXTRACTION FOR -0.33bar (-33kPa) and -15bar (-1500kPa)
+  ratliffPPFCSTDEV <- case_when(
+    textureOut == "Sand" ~ fieldcapacitydrainedlowerlimitSTDEV[1],
+    textureOut == "Loamy Sand" ~ fieldcapacitydrainedlowerlimitSTDEV[2],
+    textureOut == "Sandy Loam" ~fieldcapacitydrainedlowerlimitSTDEV[3],
+    textureOut == "Loam" ~fieldcapacitydrainedlowerlimitSTDEV[4],
+    textureOut == "Silt Loam" ~fieldcapacitydrainedlowerlimitSTDEV[5],
+    textureOut == "Silt" ~fieldcapacitydrainedlowerlimitSTDEV[6],
+    textureOut == "Silty Clay Loam" ~fieldcapacitydrainedlowerlimitSTDEV[7],
+    textureOut == "Clay Loam" ~fieldcapacitydrainedlowerlimitSTDEV[8],
+    textureOut == "Sandy Clay Loam" ~fieldcapacitydrainedlowerlimitSTDEV[9],
+    textureOut == "Sandy Clay" ~fieldcapacitydrainedlowerlimitSTDEV[10],
+    textureOut == "Silty Clay" ~fieldcapacitydrainedlowerlimitSTDEV[11],
+    textureOut == "Clay" ~fieldcapacitydrainedlowerlimitSTDEV[12],
+    .default = 999
+  )
+  
+  ratliffPPWPSTDEV <- case_when(
+    textureOut == "Sand" ~ wiltingpointlowerlimitSTDEV[1],
+    textureOut == "Loamy Sand" ~ wiltingpointlowerlimitSTDEV[2],
+    textureOut == "Sandy Loam" ~wiltingpointlowerlimitSTDEV[3],
+    textureOut == "Loam" ~wiltingpointlowerlimitSTDEV[4],
+    textureOut == "Silt Loam" ~wiltingpointlowerlimitSTDEV[5],
+    textureOut == "Silt" ~wiltingpointlowerlimitSTDEV[6],
+    textureOut == "Silty Clay Loam" ~wiltingpointlowerlimitSTDEV[7],
+    textureOut == "Clay Loam" ~wiltingpointlowerlimitSTDEV[8],
+    textureOut == "Sandy Clay Loam" ~wiltingpointlowerlimitSTDEV[9],
+    textureOut == "Sandy Clay" ~wiltingpointlowerlimitSTDEV[10],
+    textureOut == "Silty Clay" ~wiltingpointlowerlimitSTDEV[11],
+    textureOut == "Clay" ~wiltingpointlowerlimitSTDEV[12],
+    .default = 999
+  )
+  
+  
+  
+  #Saturation
+  saturationVWC <- round(max(swrc$vgOut), 3)
+  
+  #Field Capacity
+  fieldcapacityVWC <- swrc%>%
+    filter(SMP == 33)%>%
+    .$vgOut
+  fieldcapacityVWC <- round(fieldcapacityVWC, 3)
+  
+  #Wilting Point
+  wiltingpointVWC <- swrc%>%
+    filter(SMP == 1500)%>%
+    .$vgOut
+  wiltingpointVWC <- round(wiltingpointVWC, 3)
+  
+  #Saturation Matric Potential
+  saturationSMP <- 0
+  
+  #Field Capacity Matric Potential
+  fieldcapacitySMP <- 33
+  
+  #Wilting Point Matric Potential
+  wiltingpointMP <- 1500
+  
+  
+  #Ratliff parameters##
+  ratliffsaturationVWC <- saturationVWC
+  
+  ratlifffieldcapacityVWC <- case_when(
+    textureOut == "Sand" ~ fieldcapacitydrainedupperlimit[1],
+    textureOut == "Loamy Sand" ~  fieldcapacitydrainedupperlimit[2],
+    textureOut == "Sandy Loam" ~  fieldcapacitydrainedupperlimit[3],
+    textureOut == "Loam" ~  fieldcapacitydrainedupperlimit[4],
+    textureOut == "Silt Loam" ~ fieldcapacitydrainedupperlimit[5],
+    textureOut == "Silt" ~ fieldcapacitydrainedupperlimit[6],
+    textureOut == "Silty Clay Loam" ~ fieldcapacitydrainedupperlimit[7],
+    textureOut == "Clay Loam" ~ fieldcapacitydrainedupperlimit[8],
+    textureOut == "Sandy Clay Loam" ~ fieldcapacitydrainedupperlimit[9],
+    textureOut == "Sandy Clay" ~ fieldcapacitydrainedupperlimit[10],
+    textureOut == "Silty Clay" ~ fieldcapacitydrainedupperlimit[11],
+    textureOut == "Clay" ~ fieldcapacitydrainedupperlimit[12],
+    .default = 999
+  )
+  ratlifffieldcapacityVWC <- ratlifffieldcapacityVWC/100
+  
+  ratliffwiltingpointVWC <- case_when(
+    textureOut == "Sand" ~ wiltingpointupperlimit[1],
+    textureOut == "Loamy Sand" ~  wiltingpointupperlimit[2],
+    textureOut == "Sandy Loam" ~  wiltingpointupperlimit[3],
+    textureOut == "Loam" ~  wiltingpointupperlimit[4],
+    textureOut == "Silt Loam" ~ wiltingpointupperlimit[5],
+    textureOut == "Silt" ~ wiltingpointupperlimit[6],
+    textureOut == "Silty Clay Loam" ~ wiltingpointupperlimit[7],
+    textureOut == "Clay Loam" ~ wiltingpointupperlimit[8],
+    textureOut == "Sandy Clay Loam" ~ wiltingpointupperlimit[9],
+    textureOut == "Sandy Clay" ~ wiltingpointupperlimit[10],
+    textureOut == "Silty Clay" ~ wiltingpointupperlimit[11],
+    textureOut == "Clay" ~ wiltingpointupperlimit[12],
+    .default = 999
+  )
+  ratliffwiltingpointVWC <- ratliffwiltingpointVWC/100
+  
+  ratliffsaturationSMP <- 0
+  
+  swrc$ratFCSMP <- abs(swrc$vgOut - ratlifffieldcapacityVWC)
+  ratlifffieldcapacitySMP <- swrc %>%
+    filter(ratFCSMP == min(.$ratFCSMP))%>%
+    .$SMP
+  
+  # cat$ratSMP <- abs(cat$cat - (fieldcapacitydrainedupperlimit[5]/100))
+  # cat%>%filter(ratSMP == min(.$ratSMP))
+  
+  swrc$ratWPSMP <- abs(swrc$vgOut - ratliffwiltingpointVWC)
+  ratliffwiltingpointSMP <- swrc %>%
+    filter(ratWPSMP == min(.$ratWPSMP))%>%
+    .$SMP
+  
+  #Ratliff parameters STDEV##
+  
+  RosettaOut <- c(textureOut, saturationVWC, fieldcapacityVWC, wiltingpointVWC, saturationSMP, fieldcapacitySMP, wiltingpointMP)
+  ratliffOut <- c(textureOut, ratliffsaturationVWC, ratlifffieldcapacityVWC, ratliffwiltingpointVWC, ratliffsaturationSMP, ratlifffieldcapacitySMP, ratliffwiltingpointSMP)
+  
+  swrc <- data.frame(swrc)
+  rosettapoints <- data.frame(c(RosettaOut[2], RosettaOut[3], RosettaOut[4]))
+  ratlifpoints <- data.frame(c(ratliffOut[2], ratliffOut[3], ratliffOut[4]))
+  
+  swrcPlot <- ggplot()+
+    geom_point(data = swrc, mapping = aes(x=SMP, y=vgOut))+
+    
+    #Rosetta
+    annotate(geom = "point", x= as.numeric(RosettaOut[5]), y =as.numeric(RosettaOut[2]) , color="red", size=3)+ #Rosetta Sat
+    annotate(geom = "point", x= as.numeric(RosettaOut[6]), y = as.numeric(RosettaOut[3]), color="red", size=3)+ #Rosetta FC
+    annotate(geom = "point", x= as.numeric(RosettaOut[7]), y = as.numeric(RosettaOut[4]), color="red", size=3)+ #Rosetta WP
+    
+    #Error estimates still from ratliff, but from pressure plate extraction method
+    annotate(geom = "segment", x=as.numeric(RosettaOut[6]), xend = as.numeric(RosettaOut[6]), y=as.numeric(RosettaOut[3]) - (ratliffPPFCSTDEV/100), yend = as.numeric(RosettaOut[3]) + (ratliffPPFCSTDEV/100), color="red")+ #Field Capacity
+    annotate(geom = "segment", x=as.numeric(RosettaOut[7]), xend = as.numeric(RosettaOut[7]), y=as.numeric(RosettaOut[4]) - (ratliffPPWPSTDEV/100), yend = as.numeric(RosettaOut[4]) + (ratliffPPWPSTDEV/100), color="red")+ #Wilting Point  
+    
+    #Ratliff
+    annotate(geom = "point", x= as.numeric(ratliffOut[5]), y = as.numeric(ratliffOut[2]), color="blue", size=3)+ #Ratliff Sat
+    annotate(geom = "point", x= as.numeric(ratliffOut[6]), y = as.numeric(ratliffOut[3]), color="blue", size=3)+ #Ratliff FC
+    annotate(geom = "point", x= as.numeric(ratliffOut[7]), y = as.numeric(ratliffOut[4]), color="blue", size=3)+ #Ratliff WP
+    
+    #Error estimates from ratliff experimentation, not pressure plates
+    annotate(geom = "segment", x=as.numeric(ratliffOut[6]), xend = as.numeric(ratliffOut[6]), y=as.numeric(ratliffOut[3]) - (ratliffFCSTDEV/100), yend = as.numeric(ratliffOut[3]) + (ratliffFCSTDEV/100),color="blue")+ #Field Capacity
+    annotate(geom = "segment", x=as.numeric(ratliffOut[7]), xend = as.numeric(ratliffOut[7]), y=as.numeric(ratliffOut[4]) - (ratliffWPSTDEV/100), yend = as.numeric(ratliffOut[4]) + (ratliffWPSTDEV/100), color="blue")+ #Wilting Point  
+    
+    ggtitle(label = "Soil Water Retention Curve, Rosetta 3 estimates & Van Genuchten Method", subtitle = "Rosetta = Red | Ratliff = Blue")+
+    xlab("Soil Matric Potential [-kPa]")+
+    ylab("Volumetric Water Content [%]")+
+    coord_cartesian(xlim = c(0, 10000), ylim = c(0, 0.50))
+  
+  swrcPlot
+  
+  #Convert Data to Plant Available Water
+  profileVolume <- Depth * saturationVWC #saturation point from Rosetta | This is the "managed profile water volume" and represents cm3 water / profile volume considered
+  #Example Data
+  #Depth = 50
+  
+  maxPAWVolumeRosetta <- Depth * fieldcapacityVWC #Rosetta based
+  maxPAWVolumeRatliff <- Depth * ratlifffieldcapacityVWC #Ratliff based
+  
+  minPAWVolumeRosetta <- Depth * wiltingpointVWC
+  minPAWVolumeRatliff <- Depth * ratliffwiltingpointVWC
+  
+  Span <- seq(1,0, by=-0.01)
+  
+  #Determine the VWC% as a percentage of PAW
+  
+  #Profile Volume Filled
+  index <- 1:101
+  RosettaSpan <- data.frame(index)
+  profilevolumefilled <- ((Span*(maxPAWVolumeRosetta-minPAWVolumeRosetta)) + minPAWVolumeRosetta)
+  RosettaSpan$profilevolumefilled <- profilevolumefilled
+  
+  RatliffSpan <- data.frame(index)
+  profilevolumefilled <- ((Span*(maxPAWVolumeRatliff-minPAWVolumeRatliff)) + minPAWVolumeRatliff)
+  RatliffSpan$profilevolumefilled <- profilevolumefilled
+  
+  
+  #As a percentage of the total PAW
+  #test <- (RosettaSpan/100)/.203
+  RosettaSpan$percentPAW <- (RosettaSpan$profilevolumefilled)/(maxPAWVolumeRosetta)
+  RatliffSpan$percentPAW <- (RatliffSpan$profilevolumefilled)/(maxPAWVolumeRatliff)
+  
+  #Apply percentage to VWC -> THIS IS THE VWC% CORRESPONDING TO PERCENTAGES OF PAW FROM 100% to 0%
+  RosettaSpan$percentVWC <- RosettaSpan$percentPAW*0.399
+  RatliffSpan$percentVWC <- RatliffSpan$percentPAW*0.399
+  
+  
+  findSMP <- function(x){
+    dat.out <- data.frame("index", "value")
+    for(i in 1:length(x)){
+      dat.out[i,1] <- which.min(abs(swrc$vgOut - x[i]))
+      dat.out[i,2] <- swrc$vgOut[i]
+    }
+    return(dat.out)
+  }
+  
+  RosettaSpan$correspondingSMP <- findSMP(RosettaSpan$percentVWC)[,1]
+  RatliffSpan$correspondingSMP <- findSMP(RatliffSpan$percentVWC)[,1]
+  
+  #Plot 100% VWC & 100% PAW to 0 with Soil Matric Potential
+  
+  # ggplot()+
+  #   geom_point(data = )
+  
+  
+  dataOut <- tibble(variableOut, RosettaOut, ratliffOut)
+  return(list(dataOut, swrcPlot, RosettaSpan, RatliffSpan))
+}
+
+#Example#####
+
+#Empirical data from laboratory soil texture analysis
+exampleSand <- 42
+exampleSilt <- 50
+exampleClay <- 8
+
+#Estimated data from Rosetta 3 model
+exampleSaturatedHydraulicConductivity <- 40
+exampleResidualSoilWaterContent <- 0.062
+exampleSaturatedSoilWaterContent <- 0.406
+exampleAlpha <- 0.005
+exampleN <- 1.54
+
+#Make vector, note the order of the variables.
+exampleVector <- c(exampleSand, 
+                   exampleSilt, 
+                   exampleClay, 
+                   exampleSaturatedHydraulicConductivity, 
+                   exampleResidualSoilWaterContent, 
+                   exampleSaturatedSoilWaterContent, 
+                   exampleAlpha,
+                   exampleN)
+
+
+exampleOutput <- getEstimate(Depth = 50, VG = exampleVector)
+exampleOutput
+
+exampleOutput <- getEstimate(Depth = 100, VG = exampleVector)
+exampleOutput
+#_______________________________________________________________________________
