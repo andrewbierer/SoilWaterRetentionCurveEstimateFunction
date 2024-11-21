@@ -3,10 +3,10 @@ Uses arguments of soil texture to generate a soil water retention curve with hel
 
 
 This script is intended to assist with irrigation scheduling and management. The script is reliant upon accurate soil textural analysis, convergence of the Rosetta 3 model,
-and accurate representation of the management system.
+and accurate representation of the provided parameters to site locations.
 
 Functionally, the script uses Van Genuchten parameters as estimated by the Rosetta 3 model <https://dsiweb.cse.msu.edu/rosetta/> to derive a soil water retention curve for a selected profile depth to be used for irrigation management.
-The script considers the entire profile depth as 1 homogeneous mixture and applies the specified hydraulic parameters to the entire profile depth. It is not recommended to manage irrigation across soil profile depths presenting substantive differences in hydraulic movement.
+The script considers the entire entered profile depth as 1 homogeneous layer and applies the specified hydraulic parameters to the entire profile depth. It is not recommended to manage irrigation across soil profile depths presenting substantive differences in hydraulic movement.
 
 # The script is a single function taking the following arguments:
 1) Managed Soil Profile Depth:
@@ -32,11 +32,9 @@ The script considers the entire profile depth as 1 homogeneous mixture and appli
 
 # The script returns:
 1) A graphical representation (plot) of the Van Genuchten modeled Soil Water Retention Curve for the entered soil. In this graph, volumetric water content (relative to the 'Depth' argument of the function) is expressed on the Y-axis and corresponding soil matric potential on the X-axis.
-
-  Estimates for saturation, field capacity, and permanent wilting point are plotted as determined by A) The Rosetta 3 model <https://dsiweb.cse.msu.edu/rosetta/>; and B) Experimentation by L.F. Ratliff et. al (1983) "Field-measured limits of soil water availability as related to laboratory-measured properties". Soil Science Society of America Journal. doi: 10.2136/sssaj1983.03615995004700040032x | <https://doi.org/10.2136/sssaj1983.03615995004700040032x>
-     Parameter estimate Error for both estimates are derived from experimentation by Ratliff et. al. (1983)
+   Estimates for saturation, field capacity, and permanent wilting point are plotted as determined by A) The Rosetta 3 model <https://dsiweb.cse.msu.edu/rosetta/>; shaded bands indicate the mean and 1 standard deviation for the texture class as determined through experimentation by L.F. Ratliff et. al (1983) "Field-measured limits of soil water availability as related to laboratory-measured properties". Soil Science Society of America Journal. doi: 10.2136/sssaj1983.03615995004700040032x | <https://doi.org/10.2136/sssaj1983.03615995004700040032x>
      
-4) A data frame (6 columns by 101 rows) aligning expressions of soil water status across rows.
+2) A data frame (6 columns by 101 rows) aligning expressions of soil water status across rows.
    
      "index":
    
@@ -50,7 +48,7 @@ The script considers the entire profile depth as 1 homogeneous mixture and appli
    
      "Estimated Irrigation Depth for Refill of Managed Profile Volume":
 
- 5) A printed tibble with Rosetta 3 and Ratliff estimates for:
+ 3) A printed tibble with Rosetta 3 estimates and Ratliff estimated mean and +- 1 standard deviation for the texture class (where applicable) for:
     
      A) USDA Soil Texture Class
     
@@ -66,6 +64,9 @@ The script considers the entire profile depth as 1 homogeneous mixture and appli
     
      G) Soil Matric Potential @ Permanent Wilting Point
 
+# Functionally, the script is intended to assist determining irrigation quantities for target thresholds in soil moisture. The script assists users with translation and interpretation of expressions of soil moisture status. Soil matric potential can be readily converted to volumetric water content and plant available water content for the soil of interest.
+
+# Note that hysterectic effects are unaccounted for in the script. The shape of the soil water retention curve varies based upon wetting/drying cycle state and soil properties. 
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
